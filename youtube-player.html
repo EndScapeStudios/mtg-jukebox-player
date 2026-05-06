@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <title>Magic and Friends Jukebox Player</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    #player {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      border: 0;
+      background: #000;
+    }
+    #hint {
+      position: fixed;
+      left: 8px;
+      bottom: 8px;
+      z-index: 5;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      color: white;
+      background: rgba(0,0,0,.55);
+      padding: 4px 6px;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <iframe id="player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+  <div id="hint">Click once if audio does not start</div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const v = params.get('v') || '';
+    const controls = params.get('controls') === '0' ? '0' : '1';
+    const autoplay = params.get('autoplay') === '0' ? '0' : '1';
+    const nocookie = params.get('nocookie') === '1';
+    const host = nocookie ? 'https://www.youtube-nocookie.com' : 'https://www.youtube.com';
+
+    if (v) {
+      const src = `${host}/embed/${encodeURIComponent(v)}?autoplay=${autoplay}&mute=0&playsinline=1&rel=0&controls=${controls}&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
+      document.getElementById('player').src = src;
+    } else {
+      document.body.innerHTML = '<div style="color:white;font-family:Arial;padding:20px">Missing video ID.</div>';
+    }
+  </script>
+</body>
+</html>
