@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>MTG Jukebox YouTube Player</title>
+  <title>MTG Jukebox Player</title>
   <style>
     html, body {
       margin: 0;
@@ -12,203 +12,145 @@
       height: 100%;
       overflow: hidden;
       background: #050505;
-      color: white;
-      font-family: Arial, Helvetica, sans-serif;
+      font-family: Arial, sans-serif;
     }
-
-    #player, #player iframe {
-      position: fixed;
+    #player {
+      position: absolute;
       inset: 0;
-      width: 100vw;
-      height: 100vh;
-      border: 0;
-      background: black;
+      width: 100%;
+      height: 100%;
+      background: #000;
     }
-
     #overlay {
-      position: fixed;
+      position: absolute;
       inset: 0;
       display: flex;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 0, 0, 0.55);
+      background: rgba(0,0,0,0.25);
       z-index: 10;
-      cursor: pointer;
-      user-select: none;
-      text-align: center;
-      padding: 12px;
-      box-sizing: border-box;
+      pointer-events: auto;
     }
-
     #startButton {
-      border: 1px solid rgba(255,255,255,0.35);
-      background: rgba(20, 20, 20, 0.92);
-      color: white;
-      border-radius: 12px;
-      padding: 12px 16px;
-      font-size: 15px;
+      border: 0;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 18px;
       font-weight: 700;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+      background: white;
+      color: black;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.35);
     }
-
-    #hint {
-      margin-top: 8px;
-      font-size: 11px;
-      font-weight: 400;
-      opacity: 0.78;
-    }
-
-    #status {
-      position: fixed;
-      left: 8px;
-      bottom: 6px;
-      right: 8px;
-      z-index: 11;
-      font-size: 10px;
-      color: rgba(255,255,255,0.8);
-      text-shadow: 0 1px 2px black;
-      pointer-events: none;
-    }
-
-    .hidden {
-      display: none !important;
+    #message {
+      color: white;
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 16px;
+      box-sizing: border-box;
     }
   </style>
 </head>
 <body>
+  <div id="message">Loading...</div>
   <div id="player"></div>
-
-  <div id="overlay" onclick="startPlayback()">
-    <div id="startButton">
-      ▶ Click to Start Music
-      <div id="hint">YouTube needs one real click before sound can play.</div>
-    </div>
-  </div>
-
-  <div id="status">Loading...</div>
+  <div id="overlay"><button id="startButton">Click to Start Music</button></div>
 
   <script>
+    const params = new URLSearchParams(window.location.search);
+    const videoId = params.get('v') || params.get('videoId') || '';
+    const controls = params.get('controls') === '0' ? 0 : 1;
     let player = null;
-    let apiReady = false;
+    let ready = false;
     let pendingStart = false;
 
-    function getParam(names) {
-      const params = new URLSearchParams(window.location.search);
-      for (const name of names) {
-        const value = params.get(name);
-        if (value && value.trim().length > 0) return value.trim();
+    function setMessage(text) {
+      const m = document.getElementById('message');
+      if (m) m.textContent = text;
+    }
+
+    function hideOverlay() {
+      const overlay = document.getElementById('overlay');
+      if (overlay) overlay.style.display = 'none';
+    }
+
+    function showOverlay() {
+      const overlay = document.getElementById('overlay');
+      if (overlay) overlay.style.display = 'flex';
+    }
+
+    function startMusic() {
+      pendingStart = true;
+      if (!player || !ready) {
+        setMessage('Loading player...');
+        return;
       }
-      return '';
-    }
-
-    function cleanVideoId(raw) {
-      if (!raw) return '';
-      raw = decodeURIComponent(raw).trim();
-
-      // Accept a full YouTube URL too, just in case Unity sends one later.
       try {
-        if (raw.includes('youtube.com') || raw.includes('youtu.be')) {
-          const url = new URL(raw);
-          if (url.hostname.includes('youtu.be')) {
-            return url.pathname.replace(/^\//, '').split('/')[0];
-          }
-          const v = url.searchParams.get('v');
-          if (v) return v;
-          const parts = url.pathname.split('/').filter(Boolean);
-          const markers = ['embed', 'shorts', 'live'];
-          for (const marker of markers) {
-            const idx = parts.indexOf(marker);
-            if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
-          }
-        }
-      } catch (e) {}
-
-      return raw.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 32);
+        player.unMute();
+        player.setVolume(100);
+        player.playVideo();
+        hideOverlay();
+        setMessage('');
+      } catch (e) {
+        setMessage('Click play on the video.');
+        showOverlay();
+      }
     }
 
-    const videoId = cleanVideoId(getParam(['v', 'videoId', 'id']));
-    const controls = getParam(['controls']) === '0' ? 0 : 1;
+    window.startMusic = startMusic;
+    window.startMusicFromUnity = startMusic;
 
-    function setStatus(text) {
-      document.getElementById('status').textContent = text;
-      console.log('[MTG Jukebox] ' + text);
-    }
+    document.getElementById('startButton').addEventListener('click', function(e) {
+      e.preventDefault();
+      startMusic();
+    });
 
     if (!videoId) {
-      setStatus('Missing video ID. Expected ?v=VIDEO_ID');
-      document.getElementById('overlay').innerHTML = '<div id="startButton">Missing video ID<div id="hint">Unity should load this page with ?v=VIDEO_ID</div></div>';
+      setMessage('Missing video ID.');
+      showOverlay();
     } else {
-      setStatus('Ready: ' + videoId);
+      setMessage('Loading YouTube...');
       const tag = document.createElement('script');
       tag.src = 'https://www.youtube.com/iframe_api';
       document.head.appendChild(tag);
     }
 
-    function onYouTubeIframeAPIReady() {
-      apiReady = true;
-      setStatus('YouTube API ready: ' + videoId);
+    window.onYouTubeIframeAPIReady = function() {
       player = new YT.Player('player', {
+        videoId: videoId,
         width: '100%',
         height: '100%',
-        videoId: videoId,
         playerVars: {
           autoplay: 0,
           controls: controls,
-          playsinline: 1,
           rel: 0,
-          modestbranding: 1,
-          iv_load_policy: 3,
-          enablejsapi: 1,
+          playsinline: 1,
           origin: window.location.origin
         },
         events: {
-          onReady: function () {
-            setStatus('Click to start: ' + videoId);
-            if (pendingStart) startPlayback();
+          onReady: function() {
+            ready = true;
+            setMessage('');
+            showOverlay();
+            if (pendingStart) startMusic();
           },
-          onStateChange: function (event) {
+          onStateChange: function(event) {
             if (event.data === YT.PlayerState.PLAYING) {
-              document.getElementById('overlay').classList.add('hidden');
-              setStatus('Playing: ' + videoId);
+              hideOverlay();
+              setMessage('');
             }
           },
-          onError: function (event) {
-            setStatus('YouTube error: ' + event.data);
-            document.getElementById('overlay').classList.remove('hidden');
-            document.getElementById('startButton').innerHTML = 'YouTube Error ' + event.data + '<div id="hint">Try a different video or show controls.</div>';
+          onError: function(event) {
+            setMessage('YouTube error: ' + event.data);
+            showOverlay();
           }
         }
       });
-    }
-
-    function startPlayback() {
-      pendingStart = true;
-
-      if (!apiReady || !player || typeof player.playVideo !== 'function') {
-        setStatus('Player is still loading. Click again in a moment.');
-        return;
-      }
-
-      try {
-        player.unMute();
-        player.setVolume(100);
-        player.playVideo();
-        setStatus('Play requested: ' + videoId);
-
-        // Some WebViews need a second play request after the first click/user activation.
-        setTimeout(function () {
-          try {
-            player.unMute();
-            player.setVolume(100);
-            player.playVideo();
-          } catch (e) {}
-        }, 250);
-      } catch (e) {
-        setStatus('Play failed: ' + e.message);
-      }
-    }
-
-    window.startPlayback = startPlayback;
+    };
   </script>
 </body>
 </html>
