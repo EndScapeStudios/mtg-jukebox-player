@@ -2,59 +2,213 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>Magic and Friends Jukebox Player</title>
+  <title>MTG Jukebox YouTube Player</title>
   <style>
     html, body {
       margin: 0;
-      padding: 0;
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #000;
+      background: #050505;
+      color: white;
+      font-family: Arial, Helvetica, sans-serif;
     }
-    #player {
+
+    #player, #player iframe {
       position: fixed;
       inset: 0;
       width: 100vw;
       height: 100vh;
       border: 0;
-      background: #000;
+      background: black;
     }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 10;
+      cursor: pointer;
+      user-select: none;
+      text-align: center;
+      padding: 12px;
+      box-sizing: border-box;
+    }
+
+    #startButton {
+      border: 1px solid rgba(255,255,255,0.35);
+      background: rgba(20, 20, 20, 0.92);
+      color: white;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 15px;
+      font-weight: 700;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+
     #hint {
+      margin-top: 8px;
+      font-size: 11px;
+      font-weight: 400;
+      opacity: 0.78;
+    }
+
+    #status {
       position: fixed;
       left: 8px;
-      bottom: 8px;
-      z-index: 5;
-      font-family: Arial, sans-serif;
-      font-size: 12px;
-      color: white;
-      background: rgba(0,0,0,.55);
-      padding: 4px 6px;
-      border-radius: 6px;
+      bottom: 6px;
+      right: 8px;
+      z-index: 11;
+      font-size: 10px;
+      color: rgba(255,255,255,0.8);
+      text-shadow: 0 1px 2px black;
       pointer-events: none;
+    }
+
+    .hidden {
+      display: none !important;
     }
   </style>
 </head>
 <body>
-  <iframe id="player" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
-  <div id="hint">Click once if audio does not start</div>
+  <div id="player"></div>
+
+  <div id="overlay" onclick="startPlayback()">
+    <div id="startButton">
+      ▶ Click to Start Music
+      <div id="hint">YouTube needs one real click before sound can play.</div>
+    </div>
+  </div>
+
+  <div id="status">Loading...</div>
 
   <script>
-    const params = new URLSearchParams(location.search);
-    const v = params.get('v') || '';
-    const controls = params.get('controls') === '0' ? '0' : '1';
-    const autoplay = params.get('autoplay') === '0' ? '0' : '1';
-    const nocookie = params.get('nocookie') === '1';
-    const host = nocookie ? 'https://www.youtube-nocookie.com' : 'https://www.youtube.com';
+    let player = null;
+    let apiReady = false;
+    let pendingStart = false;
 
-    if (v) {
-      const src = `${host}/embed/${encodeURIComponent(v)}?autoplay=${autoplay}&mute=0&playsinline=1&rel=0&controls=${controls}&enablejsapi=1&origin=${encodeURIComponent(location.origin)}`;
-      document.getElementById('player').src = src;
-    } else {
-      document.body.innerHTML = '<div style="color:white;font-family:Arial;padding:20px">Missing video ID.</div>';
+    function getParam(names) {
+      const params = new URLSearchParams(window.location.search);
+      for (const name of names) {
+        const value = params.get(name);
+        if (value && value.trim().length > 0) return value.trim();
+      }
+      return '';
     }
+
+    function cleanVideoId(raw) {
+      if (!raw) return '';
+      raw = decodeURIComponent(raw).trim();
+
+      // Accept a full YouTube URL too, just in case Unity sends one later.
+      try {
+        if (raw.includes('youtube.com') || raw.includes('youtu.be')) {
+          const url = new URL(raw);
+          if (url.hostname.includes('youtu.be')) {
+            return url.pathname.replace(/^\//, '').split('/')[0];
+          }
+          const v = url.searchParams.get('v');
+          if (v) return v;
+          const parts = url.pathname.split('/').filter(Boolean);
+          const markers = ['embed', 'shorts', 'live'];
+          for (const marker of markers) {
+            const idx = parts.indexOf(marker);
+            if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+          }
+        }
+      } catch (e) {}
+
+      return raw.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 32);
+    }
+
+    const videoId = cleanVideoId(getParam(['v', 'videoId', 'id']));
+    const controls = getParam(['controls']) === '0' ? 0 : 1;
+
+    function setStatus(text) {
+      document.getElementById('status').textContent = text;
+      console.log('[MTG Jukebox] ' + text);
+    }
+
+    if (!videoId) {
+      setStatus('Missing video ID. Expected ?v=VIDEO_ID');
+      document.getElementById('overlay').innerHTML = '<div id="startButton">Missing video ID<div id="hint">Unity should load this page with ?v=VIDEO_ID</div></div>';
+    } else {
+      setStatus('Ready: ' + videoId);
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+
+    function onYouTubeIframeAPIReady() {
+      apiReady = true;
+      setStatus('YouTube API ready: ' + videoId);
+      player = new YT.Player('player', {
+        width: '100%',
+        height: '100%',
+        videoId: videoId,
+        playerVars: {
+          autoplay: 0,
+          controls: controls,
+          playsinline: 1,
+          rel: 0,
+          modestbranding: 1,
+          iv_load_policy: 3,
+          enablejsapi: 1,
+          origin: window.location.origin
+        },
+        events: {
+          onReady: function () {
+            setStatus('Click to start: ' + videoId);
+            if (pendingStart) startPlayback();
+          },
+          onStateChange: function (event) {
+            if (event.data === YT.PlayerState.PLAYING) {
+              document.getElementById('overlay').classList.add('hidden');
+              setStatus('Playing: ' + videoId);
+            }
+          },
+          onError: function (event) {
+            setStatus('YouTube error: ' + event.data);
+            document.getElementById('overlay').classList.remove('hidden');
+            document.getElementById('startButton').innerHTML = 'YouTube Error ' + event.data + '<div id="hint">Try a different video or show controls.</div>';
+          }
+        }
+      });
+    }
+
+    function startPlayback() {
+      pendingStart = true;
+
+      if (!apiReady || !player || typeof player.playVideo !== 'function') {
+        setStatus('Player is still loading. Click again in a moment.');
+        return;
+      }
+
+      try {
+        player.unMute();
+        player.setVolume(100);
+        player.playVideo();
+        setStatus('Play requested: ' + videoId);
+
+        // Some WebViews need a second play request after the first click/user activation.
+        setTimeout(function () {
+          try {
+            player.unMute();
+            player.setVolume(100);
+            player.playVideo();
+          } catch (e) {}
+        }, 250);
+      } catch (e) {
+        setStatus('Play failed: ' + e.message);
+      }
+    }
+
+    window.startPlayback = startPlayback;
   </script>
 </body>
 </html>
