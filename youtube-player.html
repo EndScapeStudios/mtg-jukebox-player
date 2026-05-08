@@ -6,14 +6,58 @@
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>MTG Jukebox Player</title>
   <style>
-    html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; font-family:Arial, sans-serif; }
-    #player { position:absolute; inset:0; width:100%; height:100%; }
-    #start {
-      position:absolute; left:0; right:0; bottom:0; height:48px;
-      border:0; background:rgba(0,0,0,.78); color:white; font-size:16px; font-weight:700;
-      cursor:pointer; z-index:10;
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: Arial, sans-serif;
+      filter: none !important;
+      opacity: 1 !important;
+      color-scheme: dark;
     }
-    #message { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:white; background:#111; padding:12px; text-align:center; }
+
+    #player, iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      background: #000;
+      filter: none !important;
+      opacity: 1 !important;
+      transform: translateZ(0);
+    }
+
+    #start {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 56px;
+      border: 0;
+      background: rgba(0,0,0,.84);
+      color: white;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      z-index: 20;
+    }
+
+    #message {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      background: #111;
+      padding: 12px;
+      text-align: center;
+      z-index: 5;
+    }
   </style>
 </head>
 <body>
@@ -24,14 +68,96 @@
   <script>
     let player = null;
     let ready = false;
+    let wantedVolume = 1;
+    let wantedQuality = 'hd1080';
 
     function params() { return new URLSearchParams(window.location.search); }
     function videoId() { return params().get('v') || params().get('videoId') || ''; }
-    function show(msg) { document.getElementById('message').textContent = msg; }
+    function show(msg) { document.getElementById('message').textContent = msg; document.getElementById('message').style.display = 'flex'; }
+    function hideMessage() { document.getElementById('message').style.display = 'none'; }
+    function clamp01(value) {
+      value = Number(value);
+      if (!Number.isFinite(value)) return 1;
+      if (value < 0) return 0;
+      if (value > 1) return 1;
+      return value;
+    }
+
+    function initialVolume() {
+      const q = params();
+      return clamp01(q.get('volume') ?? q.get('vol') ?? '1');
+    }
+
+    function initialQuality() {
+      return params().get('quality') || params().get('vq') || 'hd1080';
+    }
+
+    function applyVolume() {
+      try {
+        if (player && player.setVolume) player.setVolume(Math.round(wantedVolume * 100));
+        if (player && player.mute && player.unMute) {
+          if (wantedVolume <= 0) player.mute();
+          else player.unMute();
+        }
+      } catch (e) {}
+
+      try {
+        const videos = document.getElementsByTagName('video');
+        for (let i = 0; i < videos.length; i++) {
+          videos[i].volume = wantedVolume;
+          videos[i].muted = wantedVolume <= 0;
+        }
+      } catch (e) {}
+    }
+
+    function applyQuality() {
+      try {
+        if (!player) return;
+        if (player.setPlaybackQualityRange) player.setPlaybackQualityRange(wantedQuality, wantedQuality);
+        if (player.setPlaybackQuality) player.setPlaybackQuality(wantedQuality);
+      } catch (e) {}
+    }
+
+    window.setJukeboxVolumeFromUnity = function (vol) {
+      wantedVolume = clamp01(vol);
+      applyVolume();
+      return wantedVolume;
+    };
+
+    window.setPlaybackQualityFromUnity = function (quality) {
+      wantedQuality = quality || wantedQuality || 'hd1080';
+      applyQuality();
+      return wantedQuality;
+    };
+
+    window.startMusic = function (vol, quality) {
+      try {
+        if (vol !== undefined) window.setJukeboxVolumeFromUnity(vol);
+        if (quality !== undefined) window.setPlaybackQualityFromUnity(quality);
+        if (!player || !ready) {
+          show('Video is still loading. Try Start Music again.');
+          return false;
+        }
+        applyVolume();
+        applyQuality();
+        player.playVideo();
+        document.getElementById('start').style.display = 'none';
+        hideMessage();
+        return true;
+      } catch (e) {
+        show('Start failed: ' + e.message);
+        return false;
+      }
+    };
+
+    window.startMusicFromUnity = window.startMusic;
+
+    wantedVolume = initialVolume();
+    wantedQuality = initialQuality();
 
     const id = videoId();
     if (!id) {
-      show('Missing video ID.');
+      show('Missing video ID. Add ?v=YOUTUBE_ID to this player URL.');
     } else {
       show('Loading video...');
       const tag = document.createElement('script');
@@ -50,13 +176,25 @@
           playsinline: 1,
           rel: 0,
           modestbranding: 1,
+          enablejsapi: 1,
+          vq: wantedQuality,
           origin: window.location.origin
         },
         events: {
           onReady: function () {
             ready = true;
-            document.getElementById('message').style.display = 'none';
-            try { player.unMute(); player.setVolume(100); player.playVideo(); } catch(e) {}
+            hideMessage();
+            applyVolume();
+            applyQuality();
+            try { player.playVideo(); } catch(e) {}
+            setTimeout(applyVolume, 250);
+            setTimeout(applyQuality, 500);
+            setTimeout(applyVolume, 1000);
+            setTimeout(applyQuality, 1500);
+          },
+          onStateChange: function () {
+            applyVolume();
+            applyQuality();
           },
           onError: function (e) {
             show('YouTube error: ' + (e && e.data ? e.data : 'unknown'));
@@ -64,22 +202,6 @@
         }
       });
     };
-
-    window.startMusic = function () {
-      try {
-        if (!player || !ready) return false;
-        player.unMute();
-        player.setVolume(100);
-        player.playVideo();
-        document.getElementById('start').style.display = 'none';
-        return true;
-      } catch (e) {
-        show('Start failed: ' + e.message);
-        return false;
-      }
-    };
-
-    window.startMusicFromUnity = window.startMusic;
   </script>
 </body>
 </html>
